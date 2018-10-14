@@ -25,4 +25,4 @@ Arguments: -r for training file; -c for compression file; -d for decompression f
 
 Note: Compression and decompression cannot be done together!
 
-Note: Decompression may currently not fully work yet.
+Note: Decompression may currently not fully work yet but it will be available soon.
