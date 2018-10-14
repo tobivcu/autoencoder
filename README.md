@@ -1,5 +1,5 @@
 # Autoencoder for Compression and Decompression
-Authors: Tong Liu and Shakeel Alibhai
+Authors: Tong Liu (tongliu@temple.edu) and Shakeel Alibhai (tug45499@temple.edu )
 
 ## Overview
 This is an autoencoder that uses machine learning to compress and decompress files. It first takes a training file that is used to train the file (ie. generating weight matrices and bias vectors). It will then save the weight matrices and bias vectors so that they can be used for compression and/or decompression.
