@@ -22,17 +22,22 @@ if (args.compress != None) and (args.decompress != None):
     print("Compression and decompression cannot be done together!")
     sys.exit()
 
+# If the user specifies an error bound but does not specify a file for compression, print a message and exit the program
+if (args.compress == None) and (args.error != None):
+    print("Error: Error bound specified but no compression file specified")
+    sys.exit()
+
 error_bound = 0
 if args.error != None:
     error_bound = float(args.error)
 
-training_epochs = 25000
+training_epochs = 2500
 batch_size = 16
 n_input = 256
 
 display = 1000  # In the training step, results are printed to a file every "display" number of epochs (as well as on the last epoch)
 
-# Error bound definitions
+# Error definitions
 error_0 = 0    # Number of elements where the error from the prediction is 0
 error_A = 0    # Number of elements where 0 < error < 0.0001    (error between 0% and 0.01%)
 error_B = 0    # Number of elements where 0 <= error < 0.001    (error between 0.01% and 0.1%)
@@ -57,6 +62,7 @@ n_hidden_2 = 8
 n_hidden_3 = 1
 
 data_node = tf.placeholder(tf.string)
+
 
 # Define the Bitmap class
 class Bitmap(object):
@@ -91,6 +97,7 @@ class Bitmap(object):
         if self.array[elemIndex] & (1 << bitIndex):
             return True
         return False 
+
 
 # Convert the input data into a vector of numbers; the vector of numbers (data_num) is returned
 def get_data(file_name):
@@ -158,6 +165,9 @@ def normalize_data(data_num):
         # Add the number of times that the current value was multiplied or divided by 10 to modifications_all
         modifications_all.append(modifications_value)
 
+    # In order to make the modifications list more space-efficient, make it so that it does not contain any consecutive numbers
+    # Instead, each non-repeating number will be stored in modifications, and the number of times that that value appears consecutively in modifications_all will be in strides
+    # For example, if modifications_all is [3, 3, 3, 4, 5, 5, 5, 5], then the updated modifications will be [3, 4, 5] strides will be [3, 1, 4] (representing the number of times that each value of modifications_all repeats consecutively)
     modifications = []
     strides = []
     index = -1
@@ -191,6 +201,7 @@ def checkFileAlreadyExists(file_name):
     try:
         f = open(file_name, "x")
         f.close()
+        os.remove(file_name)
         return False
     except FileExistsError:
         return True
@@ -281,7 +292,6 @@ if args.training != None:
     
     data_num, original_data_num, data_num_size, modifications, strides, error_range, mod_min, index = normalize_data(data_num)
 
-    # Undo the addition
     if mod_min < 0:
         for i in range(index + 1): 
             modifications[i] += mod_min
@@ -326,15 +336,12 @@ if args.training != None:
         index = 0  # Tracks the index of data_num, the vector of numbers
 
         for i in range(total_batch):
-            # If this is the last total_batch, then it will not be completely filled, as the final total_batch contains the remaining values after division is rounded down
-            new_y = 0
-            if i == (total_batch - 1):
-                new_y = int(data_num_size / n_input) - (batch_size * i)
-                if data_num_size % n_input != 0:
-                    new_y += 1
+            # If this is the last total_batch, then it may not be completely filled, as the final total_batch may contain the remaining values after division is rounded down
             temp_batch_size = batch_size
             if i == (total_batch - 1):
-                temp_batch_size = new_y
+                temp_batch_size = int(data_num_size / n_input) - (batch_size * i)
+                if data_num_size % n_input != 0:
+                    temp_batch_size += 1
 
             # Put the next (batch_size * n_input) numbers from data_num into batch_xs and the next (batch_size * n_input) numbers from original_data_num into original_values
             for j in range(batch_size):
@@ -351,53 +358,48 @@ if args.training != None:
             if epoch % display == 0 or epoch == (training_epochs - 1):
                 # Using the most recently updated weights and biases, send the current batch_xs through the encoder and decoder; the predicted values from the decoder will be stored in p
                 p = sess.run(y_pred, {X: batch_xs, dropout_prob: 0.75})
-                        
+
                 # For each predicted value, undo the modification that had been done on the original value
                 for r in range(np.size(p, 0)):
                     for s in range(np.size(p, 1)):
                         if ((i * batch_size * n_input) + (r * np.size(p, 1)) + s) < data_num_size:
                             p[r][s] = p[r][s] / (10 ** modifications[((i * batch_size * n_input) + (r * np.size(p, 1)) + s)])
-                
-                if epoch % display == 0 or epoch == (training_epochs - 1):
-                    c, d, t = sess.run([cost_orig, delta_orig, y_orig], feed_dict={X: batch_xs, Y: original_values, Z: p})
-                    print("Batch", i, "- Cost: ", "{:.9f}".format(c), end='\t', file=error_log1)
-                          
-                    temp_batch_size = batch_size
-                    if i == (total_batch - 1):
-                        temp_batch_size = new_y
+ 
+                c, d, t = sess.run([cost_orig, delta_orig, y_orig], feed_dict={X: batch_xs, Y: original_values, Z: p})
+                print("Batch", i, "- Cost: ", "{:.9f}".format(c), end='\t', file=error_log1)
 
-                    for a in range(temp_batch_size):
-                        for b in range(n_input):
-                            if (i * batch_size * n_input + a * n_input + b) < data_num_size:
-                                # If this is the last value in an input unit and the final epoch, print information about this value to the error file
-                                if b == (n_input - 1) and epoch == (training_epochs - 1):
-                                    print("Epoch %4d\tInput Unit: %d\tt: %.8f\tp: %.8f\td: %.8f\tError: %.8f\tCost: %.16f" % (epoch, ((i * batch_size) + a), t[a][b], p[a][b], d[a][b], (abs(d[a][b]) / t[a][b]), c), file=error_log1)
-                                
-                                # Store the current error value in error_range, a list of error values
-                                error_range[i * batch_size * n_input + a * n_input + b] = (abs(d[a][b]) / t[a][b])
+                for a in range(temp_batch_size):
+                    for b in range(n_input):
+                        if (i * batch_size * n_input + a * n_input + b) < data_num_size:
+                            # If this is the last value in an input unit in the final epoch, print information about this value to the error file
+                            if epoch == (training_epochs - 1) and b == (n_input - 1):
+                                print("Epoch %4d\tInput Unit: %d\tt: %.8f\tp: %.8f\td: %.8f\tError: %.8f\tCost: %.16f" % (epoch, ((i * batch_size) + a), t[a][b], p[a][b], d[a][b], (abs(d[a][b]) / t[a][b]), c), file=error_log1)
 
-                                # Add the current error value to error_sum, the sum of error values
-                                error_sum = error_sum + error_range[i * batch_size * n_input + a * n_input + b]
+                            # Store the current error value in error_range, a list of error values
+                            error_range[i * batch_size * n_input + a * n_input + b] = (abs(d[a][b]) / t[a][b])
 
-                                # Increment the appropriate category of error values
-                                if(error_range[i * batch_size * n_input + a * n_input + b] == 0):
-                                    error_0 = error_0 + 1
-                                elif(0 < error_range[i * batch_size * n_input + a * n_input + b] < 0.0001):
-                                    error_A = error_A + 1
-                                elif(0.0001 <=  error_range[i * batch_size * n_input + a * n_input + b] < 0.001):
-                                    error_B = error_B + 1
-                                elif(0.001 <= error_range[i * batch_size * n_input + a * n_input + b] < 0.01):
-                                    error_C = error_C + 1
-                                elif(0.01 <= error_range[i * batch_size * n_input + a * n_input + b] < 0.1):
-                                    error_D = error_D + 1
-                                elif(0.1 <= error_range[i * batch_size * n_input + a * n_input + b] < 1):
-                                    error_E = error_E + 1
-                                else:
-                                    error_F = error_F + 1
-                                        
+                            # Add the current error value to error_sum, the sum of error values
+                            error_sum = error_sum + error_range[i * batch_size * n_input + a * n_input + b]
+
+                            # Increment the appropriate category of error values
+                            if(error_range[i * batch_size * n_input + a * n_input + b] == 0):
+                                error_0 = error_0 + 1
+                            elif(0 < error_range[i * batch_size * n_input + a * n_input + b] < 0.0001):
+                                error_A = error_A + 1
+                            elif(0.0001 <=  error_range[i * batch_size * n_input + a * n_input + b] < 0.001):
+                                error_B = error_B + 1
+                            elif(0.001 <= error_range[i * batch_size * n_input + a * n_input + b] < 0.01):
+                                error_C = error_C + 1
+                            elif(0.01 <= error_range[i * batch_size * n_input + a * n_input + b] < 0.1):
+                                error_D = error_D + 1
+                            elif(0.1 <= error_range[i * batch_size * n_input + a * n_input + b] < 1):
+                                error_E = error_E + 1
+                            else:
+                                error_F = error_F + 1
+
         if epoch % display == 0 or epoch == (training_epochs - 1):
-            print("For the whole data set, Error_0: %.8f\tError_A: %.8f\tError_B: %.8f\tError_C: %.8f\tError_D: %.8f\tError_E: %.8f\tError_F: %.8f\tError_mean: %.8f\t" % ((error_0 / data_num.size),(error_A / data_num.size),(error_B / data_num.size),(error_C / data_num.size),(error_D / data_num.size),(error_E / data_num.size),(error_F / data_num.size),(error_sum / data_num.size)), file=error_log1)
-                  
+            print("For the whole data set, Error_0: %.8f\tError_A: %.8f\tError_B: %.8f\tError_C: %.8f\tError_D: %.8f\tError_E: %.8f\tError_F: %.8f\tError_mean: %.8f\t" % ((error_0 / data_num.size), (error_A / data_num.size), (error_B / data_num.size), (error_C / data_num.size), (error_D / data_num.size), (error_E / data_num.size), (error_F / data_num.size), (error_sum / data_num.size)), file=error_log1)
+
             # Reset the values of the error variables
             error_0 = 0    # if error = 0
             error_A = 0    # if 0 < error < 0.0001(0.01%)
@@ -426,7 +428,8 @@ if args.training != None:
         "decoder_b3": biases['decoder_b3']
     })
     save_path = saver.save(sess,"./wb.ckpt")
-    print("Training complete!")
+
+    print("\n\nTraining complete!")
     print("Weight matrices and bias vectors stored in file: %s" % save_path)
 
 # If the user specified a file for compression
@@ -514,55 +517,39 @@ if args.compress != None:
 
     saver.restore(sess, "./wb.ckpt")
 
+    # Write the modifications information to a file
     modifications_name = file_name + ".mod"
     modifications_write = array.array("I", modifications)
-
     with open(modifications_name, "wb") as f:
-            f.write(bytes(modifications_write))
+        f.write(bytes(modifications_write))
 
+    # Write the strides information to a file
     strides_name = file_name + ".str"
     strides_write = array.array("L", strides)
-
     with open(strides_name, "wb") as f:
-            f.write(bytes(strides_write))
+        f.write(bytes(strides_write))
 
+    # Write the mod_min information to a file
     mod_min_name = file_name + ".min"
     mod_min_write = array.array("b", [mod_min])
-
     with open(mod_min_name, "wb") as f:
-            f.write(bytes(mod_min_write))
+        f.write(bytes(mod_min_write))
 
-    with open(file_name + ".mod", "rb") as f:
-            mod_temp = f.read()
-    modifications = array.array('I', mod_temp)
-
-    with open(file_name + ".str", "rb") as f:
-            str_temp = f.read()
-    strides = array.array('L', str_temp)
-
-    with open(file_name + ".min", "rb") as f:
-            min_temp = f.read()
-    mod_min = array.array('b', min_temp)
-
-    modifications = modifications.tolist()
-    strides = strides.tolist()
-    mod_min = mod_min.tolist()
-    mod_min = mod_min[0]
-
-    # Undo the addition
     if mod_min < 0:
         for i in range(index + 1): 
             modifications[i] += mod_min
 
+    # Use the modifications and strides lists to make a new list, modifications_op, that has the length of data_num and stores the modification value for that number such that the index numbers of modifications and data_num are aligned
     modifications_op = []
     index_in_current_strides = 0
     index = -1
-
     for i in range(data_num_size):
+        # If this is the first pass of the for loop or if the current modification value is different from the previous modification value (ie. no longer included in the same stride)
         if (index == -1) or (index_in_current_strides == (strides[index] - 1)):
             index += 1
             index_in_current_strides = 0
             modifications_op.append(modifications[index])
+        # If the modification for the current index is the same as the modification for the previous index (ie. they are included in the same stride)
         else:
             index_in_current_strides += 1
             modifications_op.append(modifications[index])
@@ -586,7 +573,10 @@ if args.compress != None:
     dvname = file_name + ".dvalue"
     dvfile = open(dvname, 'wb')
 
+    # Calculate the value of total_batch
     total_batch = int(data_num_size / (n_input * batch_size))
+
+    # If the above division has a remainder, then increment the value of total_batch
     if(data_num_size % (n_input * batch_size) != 0):
         total_batch += 1
 
@@ -598,17 +588,14 @@ if args.compress != None:
     time_sum = end_time - start_time
 
     for i in range(total_batch):
-        start_time2 = time.time()
+        start_time = time.time()
 
-        # If this is the last total_batch, then it will not be completely filled, as the final total_batch contains the remaining values after division is rounded down
-        new_y = 0
-        if i == (total_batch - 1):
-            new_y = int(data_num_size / n_input) - (batch_size * i)
-            if data_num_size % n_input != 0:
-                new_y += 1
+        # If this is the last total_batch, then it may not be completely filled, as the final total_batch may contain the remaining values after division is rounded down
         temp_batch_size = batch_size
         if i == (total_batch - 1):
-              temp_batch_size = new_y
+            temp_batch_size = int(data_num_size / n_input) - (batch_size * i)
+            if data_num_size % n_input != 0:
+                temp_batch_size += 1
 
         # Put the next (batch_size * n_input) numbers from data_num into batch_xs and the next (batch_size * n_input) numbers from original_data_num into original_values
         for j in range(temp_batch_size):
@@ -622,17 +609,18 @@ if args.compress != None:
         # Store the result in z_temp
         z_temp = sess.run(encoder_op, {X: batch_xs})
             
-        for j1 in range(np.size(z_temp, 0)):
-            for k1 in range(np.size(z_temp, 1)):
+        for j in range(np.size(z_temp, 0)):
+            for k in range(np.size(z_temp, 1)):
                 max_z = int(data_num_size / (n_input / n_hidden_3))
                 if (data_num_size % (n_input / n_hidden_3)) != 0:
                     max_z += 1
-                if (i * np.size(z_temp, 0) + j1 * np.size(z_temp, 1)+ k1) < max_z:
-                    zpoints.append(float(z_temp[j1][k1]))
+                if (i * np.size(z_temp, 0) + j * np.size(z_temp, 1)+ k) < max_z:
+                    zpoints.append(float(z_temp[j][k]))
 
-        end_time2 = time.time()
-        time_sum += end_time2 - start_time2
+        end_time = time.time()
+        time_sum += end_time - start_time
 
+        # Find what the predicted values would be (these are the values that the decoder would output, assuming that the weights and biases are the same (which they should be))
         p = sess.run(y_pred, {X: batch_xs})
                 
         # For each predicted value, undo the modification that had been done on the original value of that prediction
@@ -642,22 +630,27 @@ if args.compress != None:
                     p[r][s] = p[r][s] / (10 ** modifications[((i * batch_size * n_input) + (r * np.size(p, 1)) + s)])
                     ppoints.append(float(p[r][s]))
 
-        c, d, t = sess.run([cost_orig, delta_orig, y_orig], feed_dict={X: batch_xs, Y: original_values, Z: p})
+        # Using the original values and the predicted values, get the cost and delta values for each element
+        # Save the costs, deltas, and original values in c, d, and t, respectively
+        c, d, t = sess.run([cost_orig, delta_orig, y_orig], feed_dict={Y: original_values, Z: p})
+
         one_dimen_p = ppoints.tolist()
 
         for a in range(temp_batch_size):
             for b in range(n_input):
                 if (i * batch_size * n_input + a * n_input + b) < data_num_size:
-                    error_range[i * batch_size * n_input + a * n_input + b] = (abs(d[a][b])/t[a][b])
+                    error_range[i * batch_size * n_input + a * n_input + b] = (abs(d[a][b]) / t[a][b])
+
+                    # If the user specified an error-bound
                     if args.error != None:
                         if error_range[i * batch_size * n_input + a * n_input + b] >= error_bound:
-                            bitmap.set(i*batch_size*n_input + a*n_input + b)
+                            bitmap.set(i * batch_size * n_input + a * n_input + b)
                             dvpoints.append(d[a][b])
 
         dvcounter = 0
-        for i1 in range(data_num_size):
-            if bitmap.test(i1):
-                one_dimen_p[i1] += dvpoints[dvcounter]
+        for a in range(data_num_size):
+            if bitmap.test(a):
+                one_dimen_p[a] += dvpoints[dvcounter]
                 dvcounter += 1
 
         for a in range(temp_batch_size):
@@ -665,7 +658,7 @@ if args.compress != None:
                 if (i * batch_size * n_input + a * n_input + b) < data_num_size:
                     # If the true value is not 0
                     if t[a][b] != 0:  
-                        error_range[i * batch_size * n_input + a * n_input + b] = (abs(one_dimen_p[i*batch_size*n_input + a*n_input + b] - t[a][b])/t[a][b])
+                        error_range[i * batch_size * n_input + a * n_input + b] = (abs(one_dimen_p[i * batch_size * n_input + a * n_input + b] - t[a][b]) / t[a][b])
 
                     # If the true value is 0
                     else:
@@ -693,7 +686,7 @@ if args.compress != None:
                     else:
                         error_F = error_F + 1
           
-    new_start = time.time()
+    start_time = time.time()
  
     for item in bitmap.array:
         dipoints.append(item)
@@ -705,316 +698,232 @@ if args.compress != None:
     dvfile.close()
     zpoints.tofile(zfile)
     zfile.close()
-    new_end = time.time()
-    time_sum += new_end - new_start
+
+    end_time = time.time()
+    time_sum += end_time - start_time
+
     print("For the testing data set, Error_0: %.8f\tError_A: %.8f\tError_B: %.8f\tError_C: %.8f\tError_D: %.8f\tError_E: %.8f\tError_F: %.8f\tError_mean: %.8f\t" % ((error_0 / data_num.size), (error_A / data_num.size), (error_B / data_num.size), (error_C / data_num.size), (error_D / data_num.size), (error_E / data_num.size), (error_F / data_num.size), (error_sum / data_num.size)), file=error_log2)
-    fo = open(file_name, "rb")
-    datao = fo.read()
-    fo.close()
-    lengtho = len(datao)
-    fc = open(zname,"rb")
-    datac = fc.read()
-    fc.close()
-    lengthc = len(datac)
+    
+    # Get the size of the original file
+    orig_file = open(file_name, "rb")
+    orig_data = orig_file.read()
+    orig_file.close()
+    orig_len = len(orig_data)
+
+    # Get the size of the .z (compressed) file
+    comp_file = open(zname, "rb")
+    comp_data = comp_file.read()
+    comp_file.close()
+    comp_len = len(comp_data)
+
     print()
     print("Compression complete!")
     print()
-    print("The compressed file %s has been successfully generated with a compression ratio of %f." % (zname, (lengtho / lengthc)))
+    print("The compressed file %s has been successfully generated with a theoretical compression ratio of %f." % (zname, (orig_len / comp_len)))
     print("Compression error information is in the error logs.")
     print()
-    print("Compression Time: %f seconds\nCompression Throughput: %f MB/s" % (time_sum, lengtho / (time_sum * 1024 * 1024)))
+    print("Compression Time: %f seconds\nCompression Throughput: %f MB/s" % (time_sum, (orig_len / (time_sum * 1024 * 1024))))
     print()
 
 # If the user specified a file for decompression
 if args.decompress != None:
-        print("DECOMPRESSING\n----------\n")
-        start_time  = time.time()
-        file_name = args.decompress
-        print("Testing file: %s" % file_name)
+    start_time = time.time()
+    print("\nDECOMPRESSING")
+    print("---------------")
+    file_name = args.decompress
+    print("File to decompress: %s" % file_name)
 
-        file_exists = checkFileAlreadyExists(file_name)
-        if file_exists == False:
-                print("Error: File does not exist.")
-                sys.exit()
-        data_num = get_data(file_name)
-        data_num, original_data_num, data_num_size, modifications, strides, error_range, mod_min, index = normalize_data(data_num)
+    # Check to ensure that the file for decompression exists. If it does not exist, print a message and exit the program.
+    file_exists = checkFileAlreadyExists(file_name)
+    if file_exists == False:
+        print("Error: File does not exist.")
+        sys.exit()
 
-        X = tf.placeholder("float", [None, None])
-        Y = tf.placeholder("float", [None, n_input])
-        Z = tf.placeholder("float", [None, n_input])
-        Z_points = tf.placeholder("float", [None, None])
+    # Store the data from the file to decompress in data_num
+    data_num = get_data(file_name)
 
-        weights = {
-                'encoder_h1': tf.get_variable("encoder_h1", shape=[n_input, n_hidden_1]),
-                'encoder_h2': tf.get_variable("encoder_h2", shape=[n_hidden_1, n_hidden_2]),
-                'encoder_h3': tf.get_variable("encoder_h3", shape=[n_hidden_2, n_hidden_3]),
-                'decoder_h1': tf.get_variable("decoder_h1", shape=[n_hidden_3, n_hidden_2]),
-                'decoder_h2': tf.get_variable("decoder_h2", shape=[n_hidden_2, n_hidden_1]),
-                'decoder_h3': tf.get_variable("decoder_h3", shape=[n_hidden_1, n_input])
-        }
+    # Get the size of data_num and store it in data_num_size
+    size = tf.size(data_num)
+    data_num_size = sess.run(size)
 
-        biases = {
-                'encoder_b': tf.get_variable("encoder_b", shape=[n_hidden_1]),
-                'encoder_b2': tf.get_variable("encoder_b2", shape=[n_hidden_2]),
-                'encoder_b3': tf.get_variable("encoder_b3", shape=[n_hidden_3]),
-                'decoder_b': tf.get_variable("decoder_b", shape=[n_hidden_2]),
-                'decoder_b2': tf.get_variable("decoder_b2", shape=[n_hidden_1]),
-                'decoder_b3': tf.get_variable("decoder_b3", shape=[n_input])
-        }
+    X = tf.placeholder("float", [None, None])
+    Y = tf.placeholder("float", [None, n_input])
+    Z = tf.placeholder("float", [None, n_input])
+    Z_points = tf.placeholder("float", [None, None])
 
-        saver = tf.train.Saver({"encoder_h1": weights['encoder_h1'],
-                "encoder_h2": weights['encoder_h2'],
-                "encoder_h3": weights['encoder_h3'],
-                "decoder_h1": weights['decoder_h1'],
-                "decoder_h2": weights['decoder_h2'],
-                "decoder_h3": weights['decoder_h3'],
-                "encoder_b": biases['encoder_b'],
-                "encoder_b2": biases['encoder_b2'],
-                "encoder_b3": biases['encoder_b3'],
-                "decoder_b": biases['decoder_b'],
-                "decoder_b2": biases['decoder_b2'],
-                "decoder_b3": biases['decoder_b3']})
+    # Set up the weight matrices (one for each layer of the decoder)
+    weights = {
+            'decoder_h1': tf.get_variable("decoder_h1", shape=[n_hidden_3, n_hidden_2]),
+            'decoder_h2': tf.get_variable("decoder_h2", shape=[n_hidden_2, n_hidden_1]),
+            'decoder_h3': tf.get_variable("decoder_h3", shape=[n_hidden_1, n_input])
+    }
 
-        def decoder(x):
-          layer_1 = tf.nn.sigmoid(tf.add(tf.matmul(x, weights['decoder_h1']), biases['decoder_b']))
-          layer_2 = tf.nn.sigmoid(tf.add(tf.matmul(layer_1, weights['decoder_h2']), biases['decoder_b2']))
-          layer_3 = tf.nn.sigmoid(tf.add(tf.matmul(layer_2, weights['decoder_h3']), biases['decoder_b3']))
-          return layer_3
+    # Set up the bias vectors (one for each layer of the decoder)
+    biases = {
+            'decoder_b': tf.get_variable("decoder_b", shape=[n_hidden_2]),
+            'decoder_b2': tf.get_variable("decoder_b2", shape=[n_hidden_1]),
+            'decoder_b3': tf.get_variable("decoder_b3", shape=[n_input])
+    }
 
-        with open(args.decompress, 'rb') as f:
-          zfile_temp = f.read()
-        znumbers = array.array('d',zfile_temp)
+    # Get the weight matrices and bias vectors for the decoder from the training step
+    saver = tf.train.Saver({
+        "decoder_h1": weights['decoder_h1'],
+        "decoder_h2": weights['decoder_h2'],
+        "decoder_h3": weights['decoder_h3'],
+        "decoder_b": biases['decoder_b'],
+        "decoder_b2": biases['decoder_b2'],
+        "decoder_b3": biases['decoder_b3']})
 
-        #encoder_op = encoder(X)
-        decoder_op = decoder(Z_points)
+    def decoder(x):
+        layer_1 = tf.nn.sigmoid(tf.add(tf.matmul(x, weights['decoder_h1']), biases['decoder_b']))
+        layer_2 = tf.nn.sigmoid(tf.add(tf.matmul(layer_1, weights['decoder_h2']), biases['decoder_b2']))
+        layer_3 = tf.nn.sigmoid(tf.add(tf.matmul(layer_2, weights['decoder_h3']), biases['decoder_b3']))
+        return layer_3
 
-        y_pred = decoder_op
-        y_true = X
-        y_orig = Y
+    raw_file_name = file_name[:-2]  # Stores the name of the file for decompression without ".z" at the end
 
-        delta = y_true - y_pred
-        delta_orig = Y - Z
+    decoder_op = decoder(Z_points)
 
-        cost = tf.reduce_mean(tf.pow(delta, 2))
-        cost_orig = tf.reduce_mean(tf.pow(delta_orig, 2))
+    y_pred = decoder_op
+    y_true = X
+    y_orig = Y
 
-        saver.restore(sess, "./wb.ckpt")
+    delta = y_true - y_pred
 
-        modifications_name = file_name + ".mod"
-        modifications_write = array.array("B", modifications)
+    cost = tf.reduce_mean(tf.pow(delta, 2))
 
-        with open(modifications_name, "wb") as f:
-                f.write(bytes(modifications_write))
+    saver.restore(sess, "./wb.ckpt")
 
-        strides_name = file_name + ".str"
-        strides_write = array.array("L", strides)
+    # Get the saved information for the modifications list
+    with open(raw_file_name + ".mod", "rb") as f:
+        mod_temp = f.read()
+    modifications = array.array('I', mod_temp)
+    modifications = modifications.tolist()
 
-        with open(strides_name, "wb") as f:
-                f.write(bytes(strides_write))
+    # Get the saved information for the strides list
+    with open(raw_file_name + ".str", "rb") as f:
+        str_temp = f.read()
+    strides = array.array('L', str_temp)
+    strides = strides.tolist()
+    
+    # Get the saved value of mod_min
+    with open(raw_file_name + ".min", "rb") as f:
+        min_temp = f.read()
+    mod_min = array.array('b', min_temp)
+    mod_min = mod_min.tolist()
+    mod_min = mod_min[0]
 
-        mod_min_name = file_name + ".min"
-        mod_min_write = array.array("b", [mod_min])
+    # Get the saved dindex information
+    # This represents the indices of the input data where the predicted value's error is greater than the error bound
+    with open(raw_file_name + ".dindex", "rb") as f:
+        dindex = f.read()
+    dindex = array.array('I', dindex)
 
-        with open(mod_min_name, "wb") as f:
-                f.write(bytes(mod_min_write))
+    # Make a bitmap out of the dindex information
+    bit_size = len(dindex) * 31
+    bitmap_d = Bitmap(bit_size)
+    arr_i = 0
+    for item in dindex:
+        bitmap_d.array[arr_i] = item
+        arr_i += 1
 
+    # Get the saved dvalue information
+    # This represents the difference between the original values and the predicted values for all the data numbers whose predicted value's error is greater than the error bound
+    # If a predicted value's error is greater than the error bound, the difference is saved in dvalue
+    with open(raw_file_name + ".dvalue", "rb") as f:
+        dvalue = np.fromfile(f, dtype=np.float16)
+        dvalue = np.float64(dvalue)
 
-        with open(file_name+ ".mod", "rb") as f:
-                mod_temp = f.read()
-        modifications = array.array('B', mod_temp)
+    if mod_min < 0:
+        for i in range(len(modifications)): 
+            modifications[i] += mod_min
 
-        with open(file_name+ ".str", "rb") as f:
-                str_temp = f.read()
-        strides = array.array('L', str_temp)
+    # Find the number of elements in the original, uncompressed data set; store this number in original_data_size
+    original_data_size = 0
+    for x in strides:
+        original_data_size += x
 
-        with open(file_name+ ".min", "rb") as f:
-                min_temp = f.read()
-        mod_min = array.array('b', min_temp)
+    # Use the modifications and strides lists to make a new list, modifications_op, that has the length of the data_num from the compression step (the number of elements in the uncompressed file) and stores the modification value for that number such that the index numbers of modifications and the original data_num are aligned
+    modifications_op = []
+    index_in_current_strides = 0
+    index = -1
+    for i in range(original_data_size):
+        # If this is the first pass of the for loop or if the current modification value is different from the previous modification value (ie. no longer included in the same stride)
+        if (index == -1) or (index_in_current_strides == (strides[index] - 1)):
+            index += 1
+            index_in_current_strides = 0
+            modifications_op.append(modifications[index])
+        # If the modifications for the current index is the same as the modification for the previous index (ie. they are included in the same stride)
+        else:
+            index_in_current_strides += 1
+            modifications_op.append(modifications[index])
 
-        modifications = modifications.tolist()
-        strides = strides.tolist()
-        mod_min = mod_min.tolist()
-        mod_min = mod_min[0]
+    modifications = modifications_op
+    
+    print("Decompressing the .z file...")
 
-        # Undo the addition
-        if mod_min < 0:
-                for i in range(index + 1): 
-                        modifications[i] += mod_min
+    # Calculate the value of total_batch
+    total_batch = int(data_num_size / (n_hidden_3 * batch_size))
 
-        modifications_op = []
-        index_in_current_strides = 0
-        index = -1
-        for i in range(data_num_size):
-                if (index == -1) or (index_in_current_strides == (strides[index] - 1)):
-                        index += 1
-                        index_in_current_strides = 0
-                        modifications_op.append(modifications[index])
-                else:
-                        index_in_current_strides += 1
-                        modifications_op.append(modifications[index])
+    # If the above division has a remainder, then increment the value of total_batch
+    if(data_num_size % (n_input * batch_size) != 0):
+        total_batch += 1
 
-        modifications = modifications_op
+    batch_xs = [[0 for x in range(n_hidden_3)] for y in range(batch_size)]  # Initialize batch_xs to be filled with zeros
 
-        print("Decompressing the .z file...")
+    index = 0  # Tracks the index of data_num, the vector of numbers
 
-        error_file_name = file_name + ".error"
-        error_log2 = open(error_file_name,'w')
+    # Create an array to store the predicted values in, after they have been modified if necessary
+    ppoints = array.array('d')
 
-        zpoints = array.array('d')
-        zname = file_name + ".z"
-        zfile = open(zname, 'wb')       
+    for i in range(total_batch):
+        # If this is the last total_batch, then it may not be completely filled, as the final total_batch may contain the remaining values after division is rounded down
+        temp_batch_size = batch_size
+        if i == (total_batch - 1):
+            temp_batch_size = int(data_num_size / n_input) - (batch_size * i)
+            if data_num_size % n_input != 0:
+                temp_batch_size += 1
 
-        ppoints = array.array('d')
-        pname = file_name + ".d"
-        pfile = open(pname, 'wb')
-
-        dipoints = array.array('H')
-        dipoints = dipoints.tolist()
-        diname = file_name + ".dindex"
-        difile = open(diname, 'wb')
-
-        dvpoints = array.array('f')
-        dvpoints = dvpoints.tolist()
-        dvname = file_name + ".dvalue"
-        dvfile = open(dvname, 'wb')
-
-        if True:
-          total_batch = int(data_num_size / (n_input * batch_size))
-          if(data_num_size % (n_input * batch_size) != 0):
-            total_batch += 1
-
-          data_num = znumbers.tolist()
-          data_num_size = len(data_num)
-
-          batch_xs = [[0 for x in range(n_hidden_3)] for y in range(batch_size)]  # Initialize batch_xs to be filled with zeros
-          #original_values = [[0 for x in range(n_input)] for y in range(batch_size)]  # Initialize original_values to be filled with zeros
-          
-          index = 0  # Tracks the index of data_num, the vector of numbers
-          end_time =time.time()
-          time_sum = end_time - start_time
-
-          for i in range(total_batch):
-            start_time2 = time.time()
-            new_y = 0
-                # Put the next (batch_size * n_input) numbers from data_num into batch_xs and the next (batch_size * n_input) numbers from original_data_num into original_values
-            if i == (total_batch - 1):
-              new_y = int(data_num_size / n_input) - (batch_size * i)
-              if data_num_size % n_input != 0:
-                new_y += 1
-              #batch_xs = [[0 for x in range(n_input)] for y in range(new_y)]
-              #original_values = [[0 for x in range(n_input)] for y in range(new_y)]
-            temp_batch_size = batch_size
-            if i == (total_batch - 1):
-              temp_batch_size = new_y
-            for j in range(temp_batch_size):
-              for k in range(n_hidden_3):
+        # Put the next (batch_size * n_input) numbers from data_num into batch_xs and the next (batch_size * n_input) numbers from original_data_num into original_values
+        for j in range(temp_batch_size):
+            for k in range(n_hidden_3):
                 if index < data_num_size:
-                  batch_xs[j][k] = data_num[index]
-                  #original_values[j][k] = original_data_num[index]
-                  index += 1
+                    batch_xs[j][k] = data_num[index]
+                    index += 1
                 
-            end_time2 = time.time()
-            time_sum += end_time2 - start_time2
-            p = sess.run(decoder_op, {Z_points: batch_xs})
-                
-            # For each predicted value, undo the modification that had been done on the original value of that prediction
-            for r in range(np.size(p, 0)):
-              for s in range(np.size(p, 1)):
-                if ((i * batch_size * n_input) + (r * np.size(p, 1)) + s) < data_num_size:
-                  p[r][s] = p[r][s] / (10 ** modifications[((i * batch_size * n_input) + (r * np.size(p, 1)) + s)])
-                  ppoints.append(float(p[r][s]))
+        # Run the deocder, which will return the output of the neural network (this represents the decompressed values of the input data)
+        # Store the result in p
+        p = sess.run(decoder_op, {Z_points: batch_xs})
 
-            with open(file_name + ".dindex", "rb") as f:
-              dindex_temp = f.read()
-              dindices = array.array('H', dindex_temp)
-            dindices = dindices.tolist()
+        # For each predicted value, undo the modification that had been done on the original value of that prediction if necessary and append the result (as a float) to the ppoints array
+        for r in range(np.size(p, 0)):
+            for s in range(np.size(p, 1)):
+                if ((i * batch_size * n_input) + (r * np.size(p, 1)) + s) < original_data_size:
+                    p[r][s] = p[r][s] / (10 ** modifications[((i * batch_size * n_input) + (r * np.size(p, 1)) + s)])
+                    ppoints.append(float(p[r][s]))
 
-            with open(file_name + ".dvalue", "rb") as f:
-              dvalue_temp = f.read()
-              dvalues = array.array('f', dvalue_temp)
-            dvalues = dvalues.tolist()
+    one_dimen_p = ppoints.tolist()
 
+    # For all the values in the dataset, if the index is in dindex (represented by the bitmap), then add the dvalue back to the predicted value
+    dvalue_index = 0
+    for a in range(len(one_dimen_p)):
+        if(bitmap_d.test(a) == 1):
+            one_dimen_p[a] += dvalue[dvalue_index]
+            dvalue_index += 1
 
-            #c, d, t = sess.run([cost_orig, delta_orig, y_orig], feed_dict={X: batch_xs, Y: original_values, Z: p})
-            one_dimen_p = ppoints.tolist()
-            # Print each input unit index, its t value, its p value, its d value, its relative error, and its cost
-           # print()
-            '''for a in range(temp_batch_size):
-              for b in range(n_input):
-                if (i * batch_size * n_input + a * n_input + b) < data_num_size:
-                  error_range[i * batch_size * n_input + a * n_input + b] = (abs(d[a][b])/t[a][b])
-                  if args.error != None:
-                    if error_range[i * batch_size * n_input + a * n_input + b] >= error_bound:
-                      dipoints.append(i*batch_size*n_input + a*n_input + b)
-                      dvpoints.append(d[a][b])'''
-            for a in range(len(dipoints)):
-              ii = dipoints[a]
-              one_dimen_p[ii] += dvpoints[a]
+    # Write the values from the decoder to a file
+    k = open(file_name + ".txt", "w+")
+    for x in one_dimen_p:
+        k.write(str(x))
+        k.write("\n")
 
-            temp_batch_size = batch_size
-            if i == (total_batch - 1):
-              temp_batch_size = new_y
-            '''for a in range(temp_batch_size):
-              for b in range(n_input):
-                if(i * batch_size * n_input + a * n_input + b) < data_num_size:
-                  print("Testing Input Unit %d\tt: %.8f\tp: %.8f\td: %.8f\tError: %.8f\tCost: %.16f" % (((i * batch_size) + a), t[a][b], one_dimen_p[i*batch_size*n_input + a*n_input + b], one_dimen_p[i*batch_size*n_input + a*n_input + b] - t[a][b], (abs(one_dimen_p[i*batch_size*n_input + a*n_input + b] - t[a][b])/t[a][b]), c), file=error_log2)'''
-                
-            #delta_index = []
-            #delta_value = []
+    end_time = time.time()
+    decompression_time = end_time - start_time
 
-
-            '''
-            dipoints.tofile(difile)
-            dvpoints.tofile(dvfile)
-
-            with open(file_name + ".dindex", "rb") as f:
-              dindex_temp = f.read()
-              dindices = array.array('L', dindex_temp)
-            dindices = dindices.tolist()
-
-            with open(file_name + ".dvalue", "rb") as f:
-              dvalue_temp = f.read()
-              dvalues = array.array('f', dvalue_temp)
-            dvalues = dvalues.tolist()
-            '''
-
-                
-
-            # Print the batch index and its cost
-           # print("Batch", i, "- Cost: ", "{:.9f}".format(c), end = '\t')
-            '''for a in range(temp_batch_size):
-              for b in range(n_input):
-                if (i * batch_size * n_input + a * n_input + b) < data_num_size:
-                  error_range[i * batch_size * n_input + a * n_input + b] = (abs(one_dimen_p[i*batch_size*n_input + a*n_input + b] - t[a][b])/t[a][b])
-                  error_sum = error_sum + error_range[i * batch_size * n_input + a * n_input + b]
-                  if(error_range[i * batch_size * n_input + a * n_input + b] == 0):
-                    error_0 = error_0 + 1
-                  if(0 < error_range[i * batch_size * n_input + a * n_input + b] < 0.0001):
-                    error_A = error_A + 1
-                  if(0.0001 <= error_range[i * batch_size * n_input + a * n_input + b] < 0.001):
-                    error_B = error_B + 1
-                  if(0.001 <= error_range[i * batch_size * n_input + a * n_input + b] < 0.01):
-                    error_C = error_C + 1
-                  if(0.01 <= error_range[i * batch_size * n_input + a * n_input + b] < 0.1):
-                    error_D = error_D + 1
-                  if(0.1 <= error_range[i * batch_size * n_input + a * n_input + b] < 1):
-                    error_E = error_E + 1
-                  if(1 <= error_range[i * batch_size * n_input + a * n_input + b] ):
-                    error_F = error_F + 1'''
-          new_start = time.time()
-          dvfile.close()
-          zfile.close()
-          new_end = time.time()
-          time_sum += new_end - new_start
-          ppoints.tofile(pfile)
-          pfile.close()
-          fo = open(file_name, "rb")
-          datao = fo.read()
-          fo.close()
-          lengtho = len(datao)
-          fc = open(zname,"rb")
-          datac = fc.read()
-          fc.close()
-          lengthc = len(datac)
-          print()
-          print("Decompression complete!\n")
+    print()
+    print("Decompression complete!")
+    print()
+    print("The compressed file %s has been successfully decompressed to file %s." % (file_name, (file_name + ".txt")))
+    print()
+    print("Decompression Time: %f seconds" % decompression_time)
+    print()
