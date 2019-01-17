@@ -31,7 +31,7 @@ error_bound = 0
 if args.error != None:
     error_bound = float(args.error)
 
-training_epochs = 2500
+training_epochs = 25000
 batch_size = 16
 n_input = 256
 
