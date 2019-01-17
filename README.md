@@ -2,7 +2,7 @@
 Authors: Tong Liu (tongliu@temple.edu) and Shakeel Alibhai (shakeel.alibhai@temple.edu)
 
 ## Overview
-This is an autoencoder that uses machine learning to compress and decompress files. It first takes a training file that is used to train the file (ie. generating weight matrices and bias vectors). It will then save the weight matrices and bias vectors so that they can be used for compression and/or decompression.
+This is an autoencoder that uses machine learning to compress and decompress files. It first takes a training file that is used to train the autoencoder, thus generating weight matrices and bias vectors. It will then save the weight matrices and bias vectors so that they can be used for compression and/or decompression.
 
 ## Usage
 ### Setting the Parameters
@@ -13,9 +13,10 @@ There are several parameters that can be modified in the program. These include,
 * Batch Size
 * n_input
 
+These parameters can be modified by changing the code of the program. The values that we recommend for these variables are the ones that are already set; however, these may not be optimal for all datasets.
+
 ### Specifying a Compression Ratio
-Currently, the only way to specify a theoretical compression ratio is to modify the code. The compression ratio is equal to the product of n_input, n_hidden1, n_hidden2, and n_hidden3.
-Note, however, that this is only a theoretical compression ratio. The actual compression ratio may be lower than the theoretical compression ratio. This may occur for several reasons, such as the range of the input data and how well the autoencoder is optimized to predict the data.
+Currently, the only way to specify a theoretical compression ratio is to modify the code. The compression ratio is equal to the product of n_input, n_hidden1, n_hidden2, and n_hidden3. Note, however, that this is only a theoretical compression ratio; the actual compression ratio may be lower than the theoretical compression ratio. This may occur for several reasons, such as the value of the error-bound, the range of the input data and how well the autoencoder is optimized to predict the data.
 
 ### Running the Autoencoder
 Arguments: -r for training file; -c for compression file; -d for decompression file; -e for error-bound
