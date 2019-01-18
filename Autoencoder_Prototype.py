@@ -28,10 +28,12 @@ if (args.compress == None) and (args.error != None):
     sys.exit()
 
 error_bound = 0
+
+# If the user submitted an error-bound value as a parameter, convert the user's input to a float and save it in error_bound
 if args.error != None:
     error_bound = float(args.error)
 
-training_epochs = 25000
+training_epochs = 2500
 batch_size = 16
 n_input = 256
 
@@ -125,7 +127,7 @@ def get_data(file_name):
 
     return data_num
 
-# Ensures that all of the data is in a specific range (0 or [data_min, data_max])
+# Ensures that all of the data is either 0 or in a specific range, data_min to data_max (0 U [data_min, data_max])
 def normalize_data(data_num):
     size = tf.size(data_num)
     data_num_size = sess.run(size)
@@ -138,7 +140,8 @@ def normalize_data(data_num):
     # Specify the range to convert the data into, if it is not already in that range
     data_min = 0.01
     data_max = 0.1
-        
+
+    # Go through each element in the dataset        
     for i in range(data_num.size):
         modifications_value = 0     # Stores the number of times that the current value was multiplied (if positive) or divided (if negative) by 10
 
@@ -196,8 +199,8 @@ def normalize_data(data_num):
 
     return data_num, original_data_num, data_num_size, modifications, strides, error_range, mod_min, index
 
-# Returns True if a file with the name of the output file already exists and False otherwise
-def checkFileAlreadyExists(file_name):
+# Returns True if a file with the specified name exists and False otherwise
+def checkFileExists(file_name):
     try:
         f = open(file_name, "x")
         f.close()
@@ -214,18 +217,18 @@ if args.training != None:
     print("Training file: %s" % file_name)
 
     # Check to ensure that the training file exists. If it does not exist, print a message and exit the program.
-    file_exists = checkFileAlreadyExists(file_name)
+    file_exists = checkFileExists(file_name)
     if file_exists == False:
         print("Error: File does not exist.")
         sys.exit()
 
     data_num = get_data(file_name)
-        
-    X = tf.placeholder("float", [None, None])
-    Y = tf.placeholder("float", [None, n_input])
-    Z = tf.placeholder("float", [None, n_input])
 
-    dropout_prob = tf.placeholder("float")
+    # TensorFlow Placeholders
+    X = tf.placeholder("float", [None, None])	# Stores the normalized values from the input dataset
+    Y = tf.placeholder("float", [None, n_input])	# Stores the original (non-normalized) values from the input dataset
+    Z = tf.placeholder("float", [None, n_input])	# Stores the predicted values
+    dropout_prob = tf.placeholder("float")	# Stores the probability of dropout during training
 
     # Set up the weight matrices (one for each layer of the encoder and decoder); specify that their values should be initialized with values from the "random_normal" distribution when they are initialized
     weights = {
@@ -239,23 +242,23 @@ if args.training != None:
 
     # Set up the bias vectors (one for each layer of the encoder and decoder); specify that their values should be initialized with zeros when they are initialized
     biases = {
-            'encoder_b': tf.Variable(tf.zeros([n_hidden_1]), name="encoder_b"),
+            'encoder_b1': tf.Variable(tf.zeros([n_hidden_1]), name="encoder_b1"),
             'encoder_b2': tf.Variable(tf.zeros([n_hidden_2]), name="encoder_b2"),
             'encoder_b3': tf.Variable(tf.zeros([n_hidden_3]), name="encoder_b3"),
-            'decoder_b': tf.Variable(tf.zeros([n_hidden_2]), name="decoder_b"),
+            'decoder_b1': tf.Variable(tf.zeros([n_hidden_2]), name="decoder_b1"),
             'decoder_b2': tf.Variable(tf.zeros([n_hidden_1]), name="decoder_b2"),
             'decoder_b3': tf.Variable(tf.zeros([n_input]), name="decoder_b3")
     }
 
     def encoder(x):
-        layer_1 = tf.nn.sigmoid(tf.add(tf.matmul(x, weights['encoder_h1']), biases['encoder_b']))
+        layer_1 = tf.nn.sigmoid(tf.add(tf.matmul(x, weights['encoder_h1']), biases['encoder_b1']))
         layer_1 = tf.nn.dropout(layer_1, dropout_prob)
         layer_2 = tf.nn.sigmoid(tf.add(tf.matmul(layer_1, weights['encoder_h2']), biases['encoder_b2']))
         layer_3 = tf.nn.sigmoid(tf.add(tf.matmul(layer_2, weights['encoder_h3']), biases['encoder_b3']))
         return layer_3
 
     def decoder(x):
-        layer_1 = tf.nn.sigmoid(tf.add(tf.matmul(x, weights['decoder_h1']), biases['decoder_b']))
+        layer_1 = tf.nn.sigmoid(tf.add(tf.matmul(x, weights['decoder_h1']), biases['decoder_b1']))
         layer_2 = tf.nn.sigmoid(tf.add(tf.matmul(layer_1, weights['decoder_h2']), biases['decoder_b2']))
         layer_3 = tf.nn.sigmoid(tf.add(tf.matmul(layer_2, weights['decoder_h3']), biases['decoder_b3']))
         return layer_3
@@ -275,8 +278,7 @@ if args.training != None:
 
     # Open a file to write the error values to
     # This file has the same name as the training file with ".error" at the end
-    error_file_name = file_name + ".error"
-    error_log1 = open(error_file_name, 'w')
+    error_log = open(file_name + ".error", 'w')
 
     # If learning rate decay is implemented
     global_step = tf.Variable(0, trainable=False)
@@ -292,6 +294,7 @@ if args.training != None:
     
     data_num, original_data_num, data_num_size, modifications, strides, error_range, mod_min, index = normalize_data(data_num)
 
+    # If mod_min (the lowest value of modifications) was negative, then the absolute value of that number was added to every value of modifications in the normalize_data function, thus making every value of modifications either 0 or positive. Now we add mod_min back to every number to return to the original values. (Since mod_min is negative, we are essentially subtracting the value that we previously added.)
     if mod_min < 0:
         for i in range(index + 1): 
             modifications[i] += mod_min
@@ -316,7 +319,7 @@ if args.training != None:
     sess.run(init)
     
     # Start the progress bar
-    bar = progressbar.ProgressBar(maxval=training_epochs, widgets=['Training Progress: ', progressbar.Bar('=', '[', ']'), ' ', progressbar.Percentage(),' ', progressbar.ETA()], redirect_stderr=True).start()
+    bar = progressbar.ProgressBar(maxval=training_epochs, widgets=["Training Progress: ", progressbar.Bar('=', '[', ']'), ' ', progressbar.Percentage(),' ', progressbar.ETA()], redirect_stderr=True).start()
 
     # Calculate the value of total_batch (the number of times the optimizer will be run every epoch)
     total_batch = int(data_num_size / (n_input * batch_size))
@@ -331,7 +334,7 @@ if args.training != None:
         original_values = [[0 for x in range(n_input)] for y in range(batch_size)]  # Initialize original_values to be filled with zeros
 
         if(epoch % display == 0):
-            print("Epoch %4d" % epoch, end='\t', file=error_log1)
+            print("Epoch %4d" % epoch, end='\t', file=error_log)
 
         index = 0  # Tracks the index of data_num, the vector of numbers
 
@@ -346,7 +349,7 @@ if args.training != None:
             # Put the next (batch_size * n_input) numbers from data_num into batch_xs and the next (batch_size * n_input) numbers from original_data_num into original_values
             for j in range(batch_size):
                 for k in range(n_input):
-                    if index < data_num_size:
+                    if index < data_num_size:	# Check to ensure that the index is not out-of-range
                         batch_xs[j][k] = data_num[index]
                         original_values[j][k] = original_data_num[index]
                         index += 1
@@ -362,43 +365,47 @@ if args.training != None:
                 # For each predicted value, undo the modification that had been done on the original value
                 for r in range(np.size(p, 0)):
                     for s in range(np.size(p, 1)):
-                        if ((i * batch_size * n_input) + (r * np.size(p, 1)) + s) < data_num_size:
+                        if ((i * batch_size * n_input) + (r * np.size(p, 1)) + s) < data_num_size:	# Check to ensure that the index is not out-of-range
                             p[r][s] = p[r][s] / (10 ** modifications[((i * batch_size * n_input) + (r * np.size(p, 1)) + s)])
- 
+
+		# Using the normalized values, the original (non-normalized) values, and the predicted values, get the cost and delta values for each element
+		# Save the costs, deltas, and original values in c, d, and t, respectively 
                 c, d, t = sess.run([cost_orig, delta_orig, y_orig], feed_dict={X: batch_xs, Y: original_values, Z: p})
-                print("Batch", i, "- Cost: ", "{:.9f}".format(c), end='\t', file=error_log1)
+
+                print("Batch", i, "- Cost: ", "{:.9f}".format(c), end='\t', file=error_log)
 
                 for a in range(temp_batch_size):
                     for b in range(n_input):
-                        if (i * batch_size * n_input + a * n_input + b) < data_num_size:
+                        current_index = i * batch_size * n_input + a * n_input + b
+                        if current_index < data_num_size:	# Check to ensure that the index is not out-of-range
                             # If this is the last value in an input unit in the final epoch, print information about this value to the error file
                             if epoch == (training_epochs - 1) and b == (n_input - 1):
-                                print("Epoch %4d\tInput Unit: %d\tt: %.8f\tp: %.8f\td: %.8f\tError: %.8f\tCost: %.16f" % (epoch, ((i * batch_size) + a), t[a][b], p[a][b], d[a][b], (abs(d[a][b]) / t[a][b]), c), file=error_log1)
+                                print("Epoch %4d\tInput Unit: %d\tt: %.8f\tp: %.8f\td: %.8f\tError: %.8f\tCost: %.16f" % (epoch, ((i * batch_size) + a), t[a][b], p[a][b], d[a][b], (abs(d[a][b]) / t[a][b]), c), file=error_log)
 
                             # Store the current error value in error_range, a list of error values
-                            error_range[i * batch_size * n_input + a * n_input + b] = (abs(d[a][b]) / t[a][b])
+                            error_range[current_index] = (abs(d[a][b]) / t[a][b])
 
                             # Add the current error value to error_sum, the sum of error values
-                            error_sum = error_sum + error_range[i * batch_size * n_input + a * n_input + b]
+                            error_sum = error_sum + error_range[current_index]
 
                             # Increment the appropriate category of error values
-                            if(error_range[i * batch_size * n_input + a * n_input + b] == 0):
+                            if(error_range[current_index] == 0):
                                 error_0 = error_0 + 1
-                            elif(0 < error_range[i * batch_size * n_input + a * n_input + b] < 0.0001):
+                            elif(0 < error_range[current_index] < 0.0001):
                                 error_A = error_A + 1
-                            elif(0.0001 <=  error_range[i * batch_size * n_input + a * n_input + b] < 0.001):
+                            elif(0.0001 <=  error_range[current_index] < 0.001):
                                 error_B = error_B + 1
-                            elif(0.001 <= error_range[i * batch_size * n_input + a * n_input + b] < 0.01):
+                            elif(0.001 <= error_range[current_index] < 0.01):
                                 error_C = error_C + 1
-                            elif(0.01 <= error_range[i * batch_size * n_input + a * n_input + b] < 0.1):
+                            elif(0.01 <= error_range[current_index] < 0.1):
                                 error_D = error_D + 1
-                            elif(0.1 <= error_range[i * batch_size * n_input + a * n_input + b] < 1):
+                            elif(0.1 <= error_range[current_index] < 1):
                                 error_E = error_E + 1
                             else:
                                 error_F = error_F + 1
 
         if epoch % display == 0 or epoch == (training_epochs - 1):
-            print("For the whole data set, Error_0: %.8f\tError_A: %.8f\tError_B: %.8f\tError_C: %.8f\tError_D: %.8f\tError_E: %.8f\tError_F: %.8f\tError_mean: %.8f\t" % ((error_0 / data_num.size), (error_A / data_num.size), (error_B / data_num.size), (error_C / data_num.size), (error_D / data_num.size), (error_E / data_num.size), (error_F / data_num.size), (error_sum / data_num.size)), file=error_log1)
+            print("For the whole data set, Error_0: %.8f\tError_A: %.8f\tError_B: %.8f\tError_C: %.8f\tError_D: %.8f\tError_E: %.8f\tError_F: %.8f\tError_mean: %.8f\t" % ((error_0 / data_num.size), (error_A / data_num.size), (error_B / data_num.size), (error_C / data_num.size), (error_D / data_num.size), (error_E / data_num.size), (error_F / data_num.size), (error_sum / data_num.size)), file=error_log)
 
             # Reset the values of the error variables
             error_0 = 0    # if error = 0
@@ -410,7 +417,7 @@ if args.training != None:
             error_F = 0    # if 1 <= error
             error_sum = 0
 
-    error_log1.close()
+    error_log.close()
 
     # Save the weight matrices and bias vectors
     saver = tf.train.Saver({
@@ -420,14 +427,14 @@ if args.training != None:
         "decoder_h1": weights['decoder_h1'],
         "decoder_h2": weights['decoder_h2'],
         "decoder_h3": weights['decoder_h3'],
-        "encoder_b": biases['encoder_b'],
+        "encoder_b1": biases['encoder_b1'],
         "encoder_b2": biases['encoder_b2'],
         "encoder_b3": biases['encoder_b3'],
-        "decoder_b": biases['decoder_b'],
+        "decoder_b1": biases['decoder_b1'],
         "decoder_b2": biases['decoder_b2'],
         "decoder_b3": biases['decoder_b3']
     })
-    save_path = saver.save(sess,"./wb.ckpt")
+    save_path = saver.save(sess, "./wb.ckpt")
 
     print("\n\nTraining complete!")
     print("Weight matrices and bias vectors stored in file: %s" % save_path)
@@ -441,7 +448,7 @@ if args.compress != None:
     print("File to compress: %s" % file_name)
 
     # Check to ensure that the file for compression exists. If it does not exist, print a message and exit the program.
-    file_exists = checkFileAlreadyExists(file_name)
+    file_exists = checkFileExists(file_name)
     if file_exists == False:
         print("Error: File does not exist.")
         sys.exit()
@@ -451,9 +458,10 @@ if args.compress != None:
        
     bitmap = Bitmap(data_num_size)
 
-    X = tf.placeholder("float", [None, None])
-    Y = tf.placeholder("float", [None, n_input])
-    Z = tf.placeholder("float", [None, n_input])
+    # TensorFlow Placeholders
+    X = tf.placeholder("float", [None, None])	# Stores the normalized values from the input dataset
+    Y = tf.placeholder("float", [None, n_input])	# Stores the original (non-normalized) values from the input dataset
+    Z = tf.placeholder("float", [None, n_input])	# Stores the predicted values
 
     # Set up the weight matrices (one for each layer of the encoder and decoder)
     weights = {
@@ -467,10 +475,10 @@ if args.compress != None:
 
     # Set up the bias vectors (one for each layer of the encoder and decoder)
     biases = {
-            'encoder_b': tf.get_variable("encoder_b", shape=[n_hidden_1]),
+            'encoder_b1': tf.get_variable("encoder_b1", shape=[n_hidden_1]),
             'encoder_b2': tf.get_variable("encoder_b2", shape=[n_hidden_2]),
             'encoder_b3': tf.get_variable("encoder_b3", shape=[n_hidden_3]),
-            'decoder_b': tf.get_variable("decoder_b", shape=[n_hidden_2]),
+            'decoder_b1': tf.get_variable("decoder_b1", shape=[n_hidden_2]),
             'decoder_b2': tf.get_variable("decoder_b2", shape=[n_hidden_1]),
             'decoder_b3': tf.get_variable("decoder_b3", shape=[n_input])
     }
@@ -483,21 +491,21 @@ if args.compress != None:
         "decoder_h1": weights['decoder_h1'],
         "decoder_h2": weights['decoder_h2'],
         "decoder_h3": weights['decoder_h3'],
-        "encoder_b": biases['encoder_b'],
+        "encoder_b1": biases['encoder_b1'],
         "encoder_b2": biases['encoder_b2'],
         "encoder_b3": biases['encoder_b3'],
-        "decoder_b": biases['decoder_b'],
+        "decoder_b1": biases['decoder_b1'],
         "decoder_b2": biases['decoder_b2'],
         "decoder_b3": biases['decoder_b3']})
 
     def encoder(x):
-        layer_1 = tf.nn.sigmoid(tf.add(tf.matmul(x, weights['encoder_h1']), biases['encoder_b']))
+        layer_1 = tf.nn.sigmoid(tf.add(tf.matmul(x, weights['encoder_h1']), biases['encoder_b1']))
         layer_2 = tf.nn.sigmoid(tf.add(tf.matmul(layer_1, weights['encoder_h2']), biases['encoder_b2']))
         layer_3 = tf.nn.sigmoid(tf.add(tf.matmul(layer_2, weights['encoder_h3']), biases['encoder_b3']))
         return layer_3
 
     def decoder(x):
-        layer_1 = tf.nn.sigmoid(tf.add(tf.matmul(x, weights['decoder_h1']), biases['decoder_b']))
+        layer_1 = tf.nn.sigmoid(tf.add(tf.matmul(x, weights['decoder_h1']), biases['decoder_b1']))
         layer_2 = tf.nn.sigmoid(tf.add(tf.matmul(layer_1, weights['decoder_h2']), biases['decoder_b2']))
         layer_3 = tf.nn.sigmoid(tf.add(tf.matmul(layer_2, weights['decoder_h3']), biases['decoder_b3']))
         return layer_3
@@ -535,6 +543,7 @@ if args.compress != None:
     with open(mod_min_name, "wb") as f:
         f.write(bytes(mod_min_write))
 
+    # If mod_min (the lowest value of modifications) was negative, then the absolute value of that number was added to every value of modifications in the normalize_data function so that every value of modifications would be either 0 or positive. Now we add mod_min back to every number to return to the original values. (Since mod_min is negative, we are essentially subtracting the value that we previously added.)
     if mod_min < 0:
         for i in range(index + 1): 
             modifications[i] += mod_min
@@ -556,8 +565,9 @@ if args.compress != None:
 
     modifications = modifications_op
 
-    error_file_name = file_name + ".error"
-    error_log2 = open(error_file_name,'w')
+    # Open a file to write the error values to
+    # This file has the same name as the training file with ".error" at the end
+    error_log = open(file_name + ".error", 'w')
 
     zpoints = array.array('d')
     zname = file_name + ".z"
@@ -569,7 +579,7 @@ if args.compress != None:
     diname = file_name + ".dindex"
     difile = open(diname, 'wb')
 
-    dvpoints = array.array('f')
+    dvpoints = array.array('f')	# Stores the difference between the predicted value and the original value for elements whose prediction error is greater than the error bound
     dvname = file_name + ".dvalue"
     dvfile = open(dvname, 'wb')
 
@@ -600,7 +610,7 @@ if args.compress != None:
         # Put the next (batch_size * n_input) numbers from data_num into batch_xs and the next (batch_size * n_input) numbers from original_data_num into original_values
         for j in range(temp_batch_size):
             for k in range(n_input):
-                if index < data_num_size:
+                if index < data_num_size:	# Check to ensure that the index is not out-of-range
                     batch_xs[j][k] = data_num[index]
                     original_values[j][k] = original_data_num[index]
                     index += 1
@@ -608,7 +618,7 @@ if args.compress != None:
         # Run the encoder, which will return the z-layer of the neural network (this represents the compressed values of the input data)
         # Store the result in z_temp
         z_temp = sess.run(encoder_op, {X: batch_xs})
-            
+ 
         for j in range(np.size(z_temp, 0)):
             for k in range(np.size(z_temp, 1)):
                 max_z = int(data_num_size / (n_input / n_hidden_3))
@@ -626,7 +636,7 @@ if args.compress != None:
         # For each predicted value, undo the modification that had been done on the original value of that prediction
         for r in range(np.size(p, 0)):
             for s in range(np.size(p, 1)):
-                if ((i * batch_size * n_input) + (r * np.size(p, 1)) + s) < data_num_size:
+                if ((i * batch_size * n_input) + (r * np.size(p, 1)) + s) < data_num_size:	# Check to ensure that the index is not out-of-range
                     p[r][s] = p[r][s] / (10 ** modifications[((i * batch_size * n_input) + (r * np.size(p, 1)) + s)])
                     ppoints.append(float(p[r][s]))
 
@@ -638,15 +648,20 @@ if args.compress != None:
 
         for a in range(temp_batch_size):
             for b in range(n_input):
-                if (i * batch_size * n_input + a * n_input + b) < data_num_size:
+                if (i * batch_size * n_input + a * n_input + b) < data_num_size:	# Check to ensure that the index is not out-of-range
+		    # Find the value of the error (the absolute value of the delta divided by the original value) and store it in the corresponding index of error_range
                     error_range[i * batch_size * n_input + a * n_input + b] = (abs(d[a][b]) / t[a][b])
 
                     # If the user specified an error-bound
                     if args.error != None:
+			# If the current element's prediction error is greater than the error bound
                         if error_range[i * batch_size * n_input + a * n_input + b] >= error_bound:
+			    # Mark the current index of the bitmap as an index where the prediction error is greater than the error bound
                             bitmap.set(i * batch_size * n_input + a * n_input + b)
+			    # Append the delta (the difference between the prediction error and the acutal value) to dvpoints
                             dvpoints.append(d[a][b])
 
+	# Add the delta values to one_dimen_p
         dvcounter = 0
         for a in range(data_num_size):
             if bitmap.test(a):
@@ -655,33 +670,34 @@ if args.compress != None:
 
         for a in range(temp_batch_size):
             for b in range(n_input):
-                if (i * batch_size * n_input + a * n_input + b) < data_num_size:
+                current_index = i * batch_size * n_input + a * n_input + b
+                if current_index < data_num_size:	# Check to ensure that the index is not out-of-range
                     # If the true value is not 0
                     if t[a][b] != 0:  
-                        error_range[i * batch_size * n_input + a * n_input + b] = (abs(one_dimen_p[i * batch_size * n_input + a * n_input + b] - t[a][b]) / t[a][b])
+                        error_range[current_index] = (abs(one_dimen_p[current_index] - t[a][b]) / t[a][b])
 
                     # If the true value is 0
                     else:
-                        error_range[i * batch_size * n_input + a * n_input + b] = 0
+                        error_range[current_index] = 0
 
                     # Print information about this value to the error file
-                    print("Testing Input Unit %d\tt: %.8f\tp: %.8f\td: %.8f\tError: %.8f\tCost: %.16f" % (((i * batch_size) + a), t[a][b], one_dimen_p[i*batch_size*n_input + a*n_input + b], one_dimen_p[i*batch_size*n_input + a*n_input + b] - t[a][b], error_range[i * batch_size * n_input + a * n_input + b], c), file=error_log2)
+                    print("Testing Input Unit %d\tt: %.8f\tp: %.8f\td: %.8f\tError: %.8f\tCost: %.16f" % (((i * batch_size) + a), t[a][b], one_dimen_p[i*batch_size*n_input + a*n_input + b], one_dimen_p[i*batch_size*n_input + a*n_input + b] - t[a][b], error_range[i * batch_size * n_input + a * n_input + b], c), file=error_log)
 
                     # Add the current error value to error_sum, the sum of error values
                     error_sum = error_sum + error_range[i * batch_size * n_input + a * n_input + b]
 
                     # Increment the appropriate category of error values
-                    if(error_range[i * batch_size * n_input + a * n_input + b] == 0):
+                    if(error_range[current_index] == 0):
                         error_0 = error_0 + 1
-                    elif(0 < error_range[i * batch_size * n_input + a * n_input + b] < 0.0001):
+                    elif(0 < error_range[current_index] < 0.0001):
                         error_A = error_A + 1
-                    elif(0.0001 <= error_range[i * batch_size * n_input + a * n_input + b] < 0.001):
+                    elif(0.0001 <= error_range[current_index] < 0.001):
                         error_B = error_B + 1
-                    elif(0.001 <= error_range[i * batch_size * n_input + a * n_input + b] < 0.01):
+                    elif(0.001 <= error_range[current_index] < 0.01):
                         error_C = error_C + 1
-                    elif(0.01 <= error_range[i * batch_size * n_input + a * n_input + b] < 0.1):
+                    elif(0.01 <= error_range[current_index] < 0.1):
                         error_D = error_D + 1
-                    elif(0.1 <= error_range[i * batch_size * n_input + a * n_input + b] < 1):
+                    elif(0.1 <= error_range[current_index] < 1):
                         error_E = error_E + 1
                     else:
                         error_F = error_F + 1
@@ -702,7 +718,7 @@ if args.compress != None:
     end_time = time.time()
     time_sum += end_time - start_time
 
-    print("For the testing data set, Error_0: %.8f\tError_A: %.8f\tError_B: %.8f\tError_C: %.8f\tError_D: %.8f\tError_E: %.8f\tError_F: %.8f\tError_mean: %.8f\t" % ((error_0 / data_num.size), (error_A / data_num.size), (error_B / data_num.size), (error_C / data_num.size), (error_D / data_num.size), (error_E / data_num.size), (error_F / data_num.size), (error_sum / data_num.size)), file=error_log2)
+    print("For the testing data set, Error_0: %.8f\tError_A: %.8f\tError_B: %.8f\tError_C: %.8f\tError_D: %.8f\tError_E: %.8f\tError_F: %.8f\tError_mean: %.8f\t" % ((error_0 / data_num.size), (error_A / data_num.size), (error_B / data_num.size), (error_C / data_num.size), (error_D / data_num.size), (error_E / data_num.size), (error_F / data_num.size), (error_sum / data_num.size)), file=error_log)
     
     # Get the size of the original file
     orig_file = open(file_name, "rb")
@@ -719,7 +735,7 @@ if args.compress != None:
     print()
     print("Compression complete!")
     print()
-    print("The compressed file %s has been successfully generated with a theoretical compression ratio of %f." % (zname, (orig_len / comp_len)))
+    print("The compressed file %s has been successfully generated with a compression ratio of %f." % (zname, (orig_len / comp_len)))
     print("Compression error information is in the error logs.")
     print()
     print("Compression Time: %f seconds\nCompression Throughput: %f MB/s" % (time_sum, (orig_len / (time_sum * 1024 * 1024))))
@@ -734,7 +750,7 @@ if args.decompress != None:
     print("File to decompress: %s" % file_name)
 
     # Check to ensure that the file for decompression exists. If it does not exist, print a message and exit the program.
-    file_exists = checkFileAlreadyExists(file_name)
+    file_exists = checkFileExists(file_name)
     if file_exists == False:
         print("Error: File does not exist.")
         sys.exit()
@@ -746,9 +762,6 @@ if args.decompress != None:
     size = tf.size(data_num)
     data_num_size = sess.run(size)
 
-    X = tf.placeholder("float", [None, None])
-    Y = tf.placeholder("float", [None, n_input])
-    Z = tf.placeholder("float", [None, n_input])
     Z_points = tf.placeholder("float", [None, None])
 
     # Set up the weight matrices (one for each layer of the decoder)
@@ -760,7 +773,7 @@ if args.decompress != None:
 
     # Set up the bias vectors (one for each layer of the decoder)
     biases = {
-            'decoder_b': tf.get_variable("decoder_b", shape=[n_hidden_2]),
+            'decoder_b1': tf.get_variable("decoder_b1", shape=[n_hidden_2]),
             'decoder_b2': tf.get_variable("decoder_b2", shape=[n_hidden_1]),
             'decoder_b3': tf.get_variable("decoder_b3", shape=[n_input])
     }
@@ -770,12 +783,12 @@ if args.decompress != None:
         "decoder_h1": weights['decoder_h1'],
         "decoder_h2": weights['decoder_h2'],
         "decoder_h3": weights['decoder_h3'],
-        "decoder_b": biases['decoder_b'],
+        "decoder_b1": biases['decoder_b1'],
         "decoder_b2": biases['decoder_b2'],
         "decoder_b3": biases['decoder_b3']})
 
     def decoder(x):
-        layer_1 = tf.nn.sigmoid(tf.add(tf.matmul(x, weights['decoder_h1']), biases['decoder_b']))
+        layer_1 = tf.nn.sigmoid(tf.add(tf.matmul(x, weights['decoder_h1']), biases['decoder_b1']))
         layer_2 = tf.nn.sigmoid(tf.add(tf.matmul(layer_1, weights['decoder_h2']), biases['decoder_b2']))
         layer_3 = tf.nn.sigmoid(tf.add(tf.matmul(layer_2, weights['decoder_h3']), biases['decoder_b3']))
         return layer_3
@@ -785,12 +798,6 @@ if args.decompress != None:
     decoder_op = decoder(Z_points)
 
     y_pred = decoder_op
-    y_true = X
-    y_orig = Y
-
-    delta = y_true - y_pred
-
-    cost = tf.reduce_mean(tf.pow(delta, 2))
 
     saver.restore(sess, "./wb.ckpt")
 
@@ -834,6 +841,7 @@ if args.decompress != None:
         dvalue = np.fromfile(f, dtype=np.float16)
         dvalue = np.float64(dvalue)
 
+    # If mod_min (the lowest value of modifications) was negative, then the absolute value of that number was added to every value of modifications in the normalize_data function so that every value of modifications would be either 0 or positive. Now we add mod_min back to every number to return to the original values. (Since mod_min is negative, we are essentially subtracting the value that we previously added.)
     if mod_min < 0:
         for i in range(len(modifications)): 
             modifications[i] += mod_min
@@ -887,7 +895,7 @@ if args.decompress != None:
         # Put the next (batch_size * n_input) numbers from data_num into batch_xs and the next (batch_size * n_input) numbers from original_data_num into original_values
         for j in range(temp_batch_size):
             for k in range(n_hidden_3):
-                if index < data_num_size:
+                if index < data_num_size:	# Check to ensure that the index is not out-of-range
                     batch_xs[j][k] = data_num[index]
                     index += 1
                 
