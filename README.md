@@ -19,7 +19,7 @@ These parameters can be modified by changing the code of the program. The values
 Currently, the only way to specify a theoretical compression ratio is to modify the code. The compression ratio is equal to the product of n_input, n_hidden1, n_hidden2, and n_hidden3. Note, however, that this is only a theoretical compression ratio; the actual compression ratio may be lower than the theoretical compression ratio. This may occur for several reasons, such as the value of the error-bound, the range of the input data and how well the autoencoder is optimized to predict the data.
 
 ### Running the Autoencoder
-Arguments: -r for training file; -c for compression file; -d for decompression file; -e for error-bound
+Arguments: -r for training file; -c for compression file; -d for decompression file; -e for error-bound; -t for transfer learning; -o for compression error information (only in compression step)
 
 * Example with "train.txt" as a training file and "data.txt" as a file to compress: python3 autoencoder.py -r train.txt -c data.txt
 * Example with "test.txt" as a file to compress and an error bound of 10%: python3 autoencoder.py -c test.txt -e 0.1
