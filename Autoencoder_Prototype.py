@@ -47,7 +47,7 @@ error_bound = 0
 if args.error != None:
     error_bound = float(args.error)
 
-training_epochs = 1
+training_epochs = 10000
 batch_size = 64
 n_input = 256
 
@@ -439,7 +439,7 @@ if args.training != None:
                 error_organizing_sum += temp2 - temp1
 
         if epoch % display == 0 or epoch == (training_epochs - 1):
-            print("For the whole data set, Error_0: %.8f\tError_A: %.8f\tError_B: %.8f\tError_C: %.8f\tError_D: %.8f\tError_E: %.8f\tError_F: %.8f\tError_mean: %.8f\t" % ((error_0 / data_num.size), (error_A / data_num.size), (error_B / data_num.size), (error_C / data_num.size), (error_D / data_num.size), (error_E / data_num.size), (error_F / data_num.size), (error_sum / data_num.size)), file=error_log)
+            print("For the whole data set, Error_0: %.8f\tError_A: %.8f\tError_B: %.8f\tError_C: %.8f\tError_D: %.8f\tError_E: %.8f\tError_F: %.8f\tError_mean: %.8f\t" % ((error_0 / data_num_size), (error_A / data_num_size), (error_B / data_num_size), (error_C / data_num_size), (error_D / data_num_size), (error_E / data_num_size), (error_F / data_num_size), (error_sum / data_num_size)), file=error_log)
 
             # Reset the values of the error variables
             error_0 = 0    # if error = 0
@@ -775,7 +775,7 @@ if args.transfer != None:
                 error_organizing_sum += temp2 - temp1
 
         if epoch % display == 0 or epoch == (training_epochs - 1):
-            print("For the whole data set, Error_0: %.8f\tError_A: %.8f\tError_B: %.8f\tError_C: %.8f\tError_D: %.8f\tError_E: %.8f\tError_F: %.8f\tError_mean: %.8f\t" % ((error_0 / data_num.size), (error_A / data_num.size), (error_B / data_num.size), (error_C / data_num.size), (error_D / data_num.size), (error_E / data_num.size), (error_F / data_num.size), (error_sum / data_num.size)), file=error_log)
+            print("For the whole data set, Error_0: %.8f\tError_A: %.8f\tError_B: %.8f\tError_C: %.8f\tError_D: %.8f\tError_E: %.8f\tError_F: %.8f\tError_mean: %.8f\t" % ((error_0 / data_num_size), (error_A / data_num_size), (error_B / data_num_size), (error_C / data_num_size), (error_D / data_num_size), (error_E / data_num_size), (error_F / data_num_size), (error_sum / data_num_size)), file=error_log)
 
             # Reset the values of the error variables
             error_0 = 0    # if error = 0
