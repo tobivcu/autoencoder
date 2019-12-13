@@ -1005,8 +1005,13 @@ if args.compress != None:
     sum_ooe_original_neg = 0.0
     sum_ooe_original_neg = 0.0
 
-    sum_pos = 0.0
-    sum_neg = 0.0
+    sum_pos = []
+    sum_neg = []
+
+    pos_counter = -1	# Tracks the index of sum_pos
+    neg_counter = -1	# Tracks the index of sum_neg
+
+    NUM_PER_SUM = 1000
 
     bitmap3 = Bitmap(data_num_size)	# 1 mean negative and 0 means positive
 
@@ -1068,11 +1073,19 @@ if args.compress != None:
                             bitmap.set(current_index)
 
                             if ppoints_before_undoing_normalization[current_index] > batch_xs[a][b]:
-                                sum_neg += batch_xs[a][b] - ppoints_before_undoing_normalization[current_index]
+                                if num_ooe_neg % NUM_PER_SUM == 0:
+                                    neg_counter += 1
+                                    sum_neg.append(batch_xs[a][b] - ppoints_before_undoing_normalization[current_index])
+                                else:
+                                    sum_neg[neg_counter] += batch_xs[a][b] - ppoints_before_undoing_normalization[current_index]
                                 num_ooe_neg += 1
                                 bitmap3.set(current_index)
                             else:
-                                sum_pos += batch_xs[a][b] - ppoints_before_undoing_normalization[current_index]
+                                if num_ooe_pos % NUM_PER_SUM == 0:
+                                    pos_counter += 1
+                                    sum_pos.append(batch_xs[a][b] - ppoints_before_undoing_normalization[current_index])
+                                else:
+                                    sum_pos[pos_counter] += batch_xs[a][b] - ppoints_before_undoing_normalization[current_index]
                                 num_ooe_pos += 1
 
                         current_index += 1
@@ -1084,12 +1097,24 @@ if args.compress != None:
     if args.error != None:
         print("num_ooe_pos:", num_ooe_pos)
         print("num_ooe_neg:", num_ooe_neg)
-        if num_ooe_pos > 0:
-            mean_diff_pos = sum_pos / num_ooe_pos
-            print("mean_diff_pos:", mean_diff_pos)
-        if num_ooe_neg > 0:
-            mean_diff_neg = sum_neg / num_ooe_neg
-            print("mean_diff_neg:", mean_diff_neg)
+
+        mean_diff_pos = [0.0] * (pos_counter + 1)
+        mean_diff_neg = [0.0] * (neg_counter + 1)
+
+        print("length for pos array:", len(sum_pos))
+        print("length for neg array:", len(sum_neg))
+
+        print("\nPOS ARRAY:")
+
+        for m in range(pos_counter):
+            mean_diff_pos[m] = sum_pos[m] / NUM_PER_SUM
+            print(mean_diff_pos[m], end='\t')   
+
+        print("\nNEG ARRAY:")
+
+        for m in range(neg_counter):
+            mean_diff_neg[m] = sum_neg[m] / NUM_PER_SUM
+            print(mean_diff_neg[m], end='\t')
 
         new_bitmap = Bitmap(num_ooe_pos + num_ooe_neg)    # Tracks the values that were set in the original bitmap
 
@@ -1097,12 +1122,24 @@ if args.compress != None:
 
         index_of_bad_predictions = 0
 
+        pos_index = -1
+        neg_index = -1
+
+        pos_counter = 0
+        neg_counter = 0
+
         for a in range(data_num_size):    # Go through every element in the dataset
             if bitmap.test(a):    # If this index has an out-of-error-bound prediction
                 if bitmap3.test(a):
-                    new_prediction[a] = ppoints_before_undoing_normalization[a] + mean_diff_neg
+                    if neg_counter % NUM_PER_SUM == 0:
+                        neg_index += 1
+                    new_prediction[a] = ppoints_before_undoing_normalization[a] + mean_diff_neg[neg_index]
+                    neg_counter += 1
                 else:
-                    new_prediction[a] = ppoints_before_undoing_normalization[a] + mean_diff_pos
+                    if pos_counter % NUM_PER_SUM == 0:
+                        pos_index += 1
+                    new_prediction[a] = ppoints_before_undoing_normalization[a] + mean_diff_pos[pos_index]
+                    pos_counter += 1
                 new_prediction[a] /= (10 ** modifications[a])
                 if abs((new_prediction[a] - original_data_num[a]) / original_data_num[a]) > error_bound:    # If still out-of-error-bound after adding mean_diff
                     new_bitmap.set(index_of_bad_predictions)
@@ -1146,7 +1183,7 @@ if args.compress != None:
                         error_without_new_method = (abs(ppoints[i] - original_data_num[i]) / original_data_num[i])
                         
                         # Print information about this value to the error file
-                        print("OV: %.8f\tAN: %.8f\to: %.8f\tp: %.8f\tNP: %.8f\tOrig_Error: %.8f\tNew Error: %.8f" % (original_data_num[i], data_num[i], ppoints_before_undoing_normalization[i], ppoints[i], new_prediction[i], error_without_new_method, error), file=error_log)
+                        print("OV: %.8f\tAN: %.8f\to: %.8f\tp: %.8f\tNP: %.8f\tOrig Error: %.8f\tNew Error: %.8f" % (original_data_num[i], data_num[i], ppoints_before_undoing_normalization[i], ppoints[i], new_prediction[i], error_without_new_method, error), file=error_log)
 
                         # Add the current error value to error_sum, the sum of error values
                         error_sum += error
