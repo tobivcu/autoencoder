@@ -20,12 +20,12 @@ Currently, the only way to specify a theoretical compression ratio is to modify 
 
 ### Running the Autoencoder
 #### Arguments
-* -r for training file
-* -c for compression file
-* -d for decompression file
-* -e for error-bound
-* -t for transfer learning
-* -o for compression error information (only in compression step)
+* `-r` for training file
+* `-c` for compression file
+* `-d` for decompression file
+* `-e` for error-bound
+* `-t` for transfer learning
+* `-o` for compression error information (only in compression step)
 
 #### Examples
 * Example with "train.txt" as a training file and "data.txt" as a file to compress: `python3 Autoencoder_Prototype.py -r train.txt -c data.txt`
