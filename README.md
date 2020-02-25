@@ -28,9 +28,9 @@ Currently, the only way to specify a theoretical compression ratio is to modify 
 * -o for compression error information (only in compression step)
 
 #### Examples
-* Example with "train.txt" as a training file and "data.txt" as a file to compress: python3 autoencoder.py -r train.txt -c data.txt
-* Example with "test.txt" as a file to compress and an error bound of 10%: python3 autoencoder.py -c test.txt -e 0.1
-* Example with "p.z" as a file to decompress: python3 autoencoder.py -d p.z (Note: In this case, "p.z" must be the output file from the compression step of the autoencoder.)
+* Example with "train.txt" as a training file and "data.txt" as a file to compress: `python3 Autoencoder_Prototype.py -r train.txt -c data.txt`
+* Example with "test.bin" as a file to compress and an error bound of 10%: `python3 Autoencoder_Prototype.py -c test.bin -e 0.1` (Note: In order to compress, weights and biases must have been previously generated. The weights and biases should be in the same folder as the current working directory and autoencoder code.)
+* Example with "p.z" as a file to decompress: `python3 Autoencoder_Prototype.py -d p.z` (Note: In this case, "p.z" must be the output file from the compression step of the autoencoder.)
 
 #### Notes
 * Compression and decompression cannot be done together.
