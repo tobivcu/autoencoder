@@ -36,3 +36,4 @@ Currently, the only way to specify a theoretical compression ratio is to modify 
 * Compression and decompression cannot be done together.
 * If an error bound is specified, then a file for compression must be specified as well. (However, it is possible to specify a file for compression without specifying an error bound.)
 * The compression step will produce a .z file, as well as several other files. All the files should be kept there for decompression; however, when entering the command to start the autoencoder for decompression, only the .z file needs to be specified.
+* `Autoencoder_Prototype.py` is the main version of the autoencoder. `simplified_autoencoder.py` is a simplified version that only includes the training and testing portions and does not include an error bound; it is designed to be used in Google Colaboratory and is not meant for as general uses as the main version is.
